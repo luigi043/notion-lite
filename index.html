@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notion-lite — Markdown Editor</title>
+
+  <!-- CodeMirror -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+
+  <style>
+    /* ── Reset & base ─────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-primary:    #ffffff;
+      --bg-secondary:  #f7f7f5;
+      --bg-tertiary:   #efefec;
+      --border:        rgba(0,0,0,0.09);
+      --border-mid:    rgba(0,0,0,0.14);
+      --text-primary:  #1a1a1a;
+      --text-secondary:#555;
+      --text-muted:    #999;
+      --accent:        #2383e2;
+      --accent-bg:     #e8f1fb;
+      --accent-text:   #185fa5;
+      --success:       #3d9970;
+      --danger:        #c0392b;
+      --sidebar-w:     230px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-primary:    #191919;
+        --bg-secondary:  #222222;
+        --bg-tertiary:   #2a2a2a;
+        --border:        rgba(255,255,255,0.08);
+        --border-mid:    rgba(255,255,255,0.13);
+        --text-primary:  #e8e8e8;
+        --text-secondary:#aaa;
+        --text-muted:    #666;
+        --accent:        #4a9ede;
+        --accent-bg:     rgba(74,158,222,0.12);
+        --accent-text:   #74b8f0;
+        --success:       #4caf6e;
+        --danger:        #e05c5c;
+      }
+    }
+
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      overflow: hidden;
+    }
+
+    /* ── App shell ────────────────────────────────────────── */
+    #app {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-primary);
+    }
+
+    /* ── Top bar ──────────────────────────────────────────── */
+    #topbar {
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      height: 46px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    #note-title {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text-primary);
+      font-size: 14px;
+      font-weight: 500;
+      font-family: inherit;
+    }
+    #note-title::placeholder { color: var(--text-muted); }
+
+    .top-btn {
+      padding: 4px 10px;
+      background: transparent;
+      border: 1px solid var(--border-mid);
+      border-radius: 6px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.12s;
+    }
+    .top-btn:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    #save-status {
+      font-size: 11px;
+      color: var(--text-muted);
+      min-width: 54px;
+      text-align: right;
+      transition: color 0.2s;
+    }
+    #save-status.saving { color: var(--text-secondary); }
+    #save-status.saved  { color: var(--success); }
+
+    /* ── Main layout ──────────────────────────────────────── */
+    #main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ──────────────────────────────────────────── */
+    #sidebar {
+      width: var(--sidebar-w);
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    #sidebar-head {
+      padding: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #sidebar-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 7px;
+    }
+
+    #new-btn {
+      width: 100%;
+      padding: 6px 10px;
+      background: var(--accent-bg);
+      border: none;
+      border-radius: 6px;
+      color: var(--accent-text);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      text-align: left;
+      transition: opacity 0.15s;
+    }
+    #new-btn:hover { opacity: 0.8; }
+
+    #notes-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+
+    .ni {
+      display: flex;
+      align-items: center;
+      padding: 7px 10px;
+      cursor: pointer;
+      gap: 8px;
+      transition: background 0.1s;
+    }
+    .ni:hover { background: var(--bg-tertiary); }
+    .ni.active { background: var(--accent-bg); }
+
+    .ni-info { flex: 1; min-width: 0; }
+
+    .ni-title {
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text-primary);
+    }
+    .ni.active .ni-title { color: var(--accent-text); }
+
+    .ni-date {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    .del-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 5px;
+      border-radius: 4px;
+      opacity: 0;
+      font-size: 13px;
+      line-height: 1;
+      transition: opacity 0.1s, color 0.1s;
+    }
+    .ni:hover .del-btn  { opacity: 1; }
+    .del-btn:hover      { color: var(--danger); }
+
+    /* ── Workspace ────────────────────────────────────────── */
+    #workspace {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── Editor pane ──────────────────────────────────────── */
+    #editor-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    #toolbar {
+      display: flex;
+      align-items: center;
+      padding: 3px 8px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-secondary);
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    .tb {
+      padding: 3px 8px;
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 500;
+      font-family: monospace;
+      transition: background 0.1s;
+      line-height: 1.6;
+    }
+    .tb:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .tsep {
+      width: 1px;
+      height: 14px;
+      background: var(--border-mid);
+      margin: 0 3px;
+    }
+
+    .pane-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      padding: 5px 16px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #editor-wrap {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* ── Preview pane ─────────────────────────────────────── */
+    #preview-pane {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    #preview-pane .pane-label {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    #preview-body {
+      padding: 28px 32px;
+      flex: 1;
+    }
+
+    #empty-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    /* ── Preview rendered content ─────────────────────────── */
+    #preview-content {
+      max-width: 660px;
+      line-height: 1.8;
+      color: var(--text-primary);
+      font-size: 14px;
+    }
+
+    #preview-content h1,
+    #preview-content h2,
+    #preview-content h3,
+    #preview-content h4 {
+      margin: 1.4em 0 0.45em;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    #preview-content h1 { font-size: 1.85em; }
+    #preview-content h2 { font-size: 1.4em; }
+    #preview-content h3 { font-size: 1.15em; }
+    #preview-content h4 { font-size: 1em; color: var(--text-secondary); }
+
+    #preview-content p { margin: 0.75em 0; }
+
+    #preview-content code {
+      background: var(--bg-tertiary);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', monospace;
+      font-size: 0.88em;
+    }
+
+    #preview-content pre {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      margin: 1em 0;
+    }
+    #preview-content pre code {
+      background: none;
+      padding: 0;
+      font-size: 12px;
+    }
+
+    #preview-content blockquote {
+      border-left: 3px solid var(--accent);
+      padding-left: 14px;
+      color: var(--text-secondary);
+      margin: 1em 0;
+      font-style: italic;
+    }
+
+    #preview-content ul,
+    #preview-content ol {
+      padding-left: 22px;
+      margin: 0.75em 0;
+    }
+    #preview-content li { margin: 0.3em 0; }
+
+    #preview-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1em 0;
+      font-size: 13px;
+    }
+    #preview-content th,
+    #preview-content td {
+      border: 1px solid var(--border-mid);
+      padding: 7px 12px;
+      text-align: left;
+    }
+    #preview-content th {
+      background: var(--bg-secondary);
+      font-weight: 600;
+    }
+
+    #preview-content a { color: var(--accent); text-decoration: none; }
+    #preview-content a:hover { text-decoration: underline; }
+
+    #preview-content hr {
+      border: none;
+      border-top: 1px solid var(--border-mid);
+      margin: 1.5em 0;
+    }
+
+    #preview-content img {
+      max-width: 100%;
+      border-radius: 6px;
+    }
+
+    /* task list checkboxes */
+    #preview-content input[type="checkbox"] {
+      margin-right: 5px;
+      cursor: default;
+    }
+
+    /* ── CodeMirror overrides ─────────────────────────────── */
+    .CodeMirror {
+      height: 100% !important;
+      background: var(--bg-primary) !important;
+      color: var(--text-primary) !important;
+      font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', monospace !important;
+      font-size: 13px !important;
+      line-height: 1.75 !important;
+    }
+    .CodeMirror-scroll   { padding: 24px 28px !important; }
+    .CodeMirror-gutters  { background: var(--bg-primary) !important; border-right: none !important; display: none !important; }
+    .CodeMirror-cursor   { border-left-color: var(--accent) !important; }
+    .CodeMirror-selected { background: var(--accent-bg) !important; }
+
+    /* Markdown token colours */
+    .cm-header          { color: var(--accent-text) !important; font-weight: 600 !important; }
+    .cm-strong          { font-weight: 600 !important; }
+    .cm-em              { font-style: italic !important; }
+    .cm-link, .cm-url   { color: var(--accent) !important; }
+    .cm-comment         { color: var(--text-muted) !important; }
+
+    /* ── Scrollbar ────────────────────────────────────────── */
+    ::-webkit-scrollbar             { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track       { background: transparent; }
+    ::-webkit-scrollbar-thumb       { background: var(--border-mid); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  </style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- Top bar -->
+  <div id="topbar">
+    <input id="note-title" type="text" placeholder="Untitled" autocomplete="off">
+    <button class="top-btn" onclick="exportMd()"   title="Export Markdown">↓ .md</button>
+    <button class="top-btn" onclick="exportHtml()" title="Export HTML">↓ .html</button>
+    <span id="save-status">—</span>
+  </div>
+
+  <!-- Main -->
+  <div id="main">
+
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div id="sidebar-head">
+        <div id="sidebar-label">Notes</div>
+        <button id="new-btn" onclick="createNote()">+ New note</button>
+      </div>
+      <div id="notes-list"></div>
+    </div>
+
+    <!-- Workspace: editor + preview -->
+    <div id="workspace">
+
+      <!-- Editor -->
+      <div id="editor-pane">
+        <div class="pane-label">Markdown</div>
+        <div id="toolbar">
+          <button class="tb" onclick="fmt('**','**')"  title="Bold (Ctrl+B)">B</button>
+          <button class="tb" onclick="fmt('*','*')"    title="Italic (Ctrl+I)" style="font-style:italic">I</button>
+          <button class="tb" onclick="fmt('`','`')"    title="Inline code">` `</button>
+          <div class="tsep"></div>
+          <button class="tb" onclick="ln('# ')">H1</button>
+          <button class="tb" onclick="ln('## ')">H2</button>
+          <button class="tb" onclick="ln('### ')">H3</button>
+          <div class="tsep"></div>
+          <button class="tb" onclick="ln('- ')">— list</button>
+          <button class="tb" onclick="ln('- [ ] ')">☐ todo</button>
+          <button class="tb" onclick="ln('> ')">❝ quote</button>
+          <button class="tb" onclick="codeBlock()">{ } code</button>
+          <button class="tb" onclick="ln('---')">hr</button>
+          <div class="tsep"></div>
+          <button class="tb" onclick="ln('| Col1 | Col2 |\n|------|------|\n| A    | B    |')">⊞ table</button>
+        </div>
+        <div id="editor-wrap">
+          <textarea id="cm-target"></textarea>
+        </div>
+      </div>
+
+      <!-- Preview -->
+      <div id="preview-pane">
+        <div class="pane-label">Preview</div>
+        <div id="preview-body">
+          <div id="empty-wrap">Select a note to start writing.</div>
+          <div id="preview-content" style="display:none"></div>
+        </div>
+      </div>
+
+    </div><!-- /workspace -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- ── Libraries (CDN) ───────────────────────────────────── -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/2.4.0/purify.min.js"></script>
+
+<script>
+/* ============================================================
+   Notion-lite — Markdown Editor
+   Stack: CodeMirror 5 · marked · DOMPurify · IndexedDB (raw)
+   ============================================================ */
+
+'use strict';
+
+// ── IndexedDB ──────────────────────────────────────────────
+
+const DB_NAME  = 'NotesDB';
+const DB_VER   = 1;
+const STORE    = 'notes';
+let   db;
+
+/** Open (or upgrade) the database */
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VER);
+
+    req.onupgradeneeded = (e) => {
+      const idb = e.target.result;
+      if (!idb.objectStoreNames.contains(STORE)) {
+        const store = idb.createObjectStore(STORE, { keyPath: 'id' });
+        store.createIndex('updatedAt', 'updatedAt');
+      }
+    };
+
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror   = (e) => reject(e.target.error);
+  });
+}
+
+/** Generic IDB transaction helper */
+function tx(mode, fn) {
+  return new Promise((resolve, reject) => {
+    const t   = db.transaction(STORE, mode);
+    const s   = t.objectStore(STORE);
+    const req = fn(s);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+const dbGetAll = ()    => tx('readonly',  s => s.getAll());
+const dbPut    = note  => tx('readwrite', s => s.put(note));
+const dbDelete = id    => tx('readwrite', s => s.delete(id));
+
+
+// ── App state ──────────────────────────────────────────────
+
+let notes    = [];   // Note[]  — in-memory, sorted by updatedAt desc
+let activeId = null; // string | null
+let editor   = null; // CodeMirror instance
+let saveTm   = null; // auto-save debounce timer
+let prevTm   = null; // preview debounce timer
+
+
+// ── Helpers ────────────────────────────────────────────────
+
+/** Sort newest-first */
+const byDate = (a, b) => b.updatedAt - a.updatedAt;
+
+/** Generate a random ID */
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+/** Escape HTML for injecting into DOM (sidebar titles) */
+function esc(s) {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Human-readable relative timestamp */
+function fmtDate(ts) {
+  const diff = Date.now() - ts;
+  if (diff < 60_000)   return 'just now';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/** Update save-status badge */
+function setSaveStatus(state) {
+  const el = document.getElementById('save-status');
+  el.className  = state;
+  el.textContent =
+    state === 'saving' ? 'saving…' :
+    state === 'saved'  ? '✓ saved' : '—';
+}
+
+
+// ── Preview ────────────────────────────────────────────────
+
+/**
+ * Re-render the preview from current editor content.
+ * Uses marked (GFM) then sanitises with DOMPurify.
+ */
+function updatePreview() {
+  const content = editor ? editor.getValue() : '';
+  const empty   = document.getElementById('empty-wrap');
+  const preview = document.getElementById('preview-content');
+
+  if (!content.trim()) {
+    empty.style.display   = 'flex';
+    preview.style.display = 'none';
+    return;
+  }
+
+  empty.style.display   = 'none';
+  preview.style.display = 'block';
+
+  const rawHtml   = marked.parse(content, { gfm: true, breaks: true });
+  preview.innerHTML = DOMPurify.sanitize(rawHtml);
+}
+
+
+// ── Notes CRUD ─────────────────────────────────────────────
+
+/** Create a brand-new note, save it, and load it in the editor */
+function createNote() {
+  const note = {
+    id:        uid(),
+    title:     'Untitled',
+    content:   notes.length === 0 ? WELCOME_NOTE : '',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  notes.unshift(note);
+  dbPut(note);
+  renderSidebar();
+  loadNote(note.id);
+}
+
+/** Load a note into the editor without triggering auto-save */
+function loadNote(id) {
+  activeId = id;
+  const note = notes.find(n => n.id === id);
+  if (!note) return;
+
+  // Pause change listener while we programmatically set value
+  editor.off('change', onEditorChange);
+  editor.setValue(note.content);
+  editor.on('change', onEditorChange);
+
+  document.getElementById('note-title').value = note.title;
+  editor.focus();
+  updatePreview();
+  setSaveStatus('saved');
+  renderSidebar();
+}
+
+/** Persist the active note to IndexedDB */
+async function saveNote() {
+  if (!activeId) return;
+  const note = notes.find(n => n.id === activeId);
+  if (!note) return;
+
+  const content  = editor.getValue();
+  const titleEl  = document.getElementById('note-title');
+
+  // Auto-derive title from first Markdown heading or first non-empty line
+  if (note.title === 'Untitled' && content.trim()) {
+    const firstLine = content.split('\n').find(l => l.trim());
+    if (firstLine) {
+      const derived = firstLine.replace(/^#+\s*/, '').trim().slice(0, 60);
+      if (derived) {
+        note.title = derived;
+        titleEl.value = note.title;
+      }
+    }
+  } else {
+    note.title = titleEl.value.trim() || 'Untitled';
+  }
+
+  note.content   = content;
+  note.updatedAt = Date.now();
+
+  notes.sort(byDate);
+  await dbPut(note);
+
+  setSaveStatus('saved');
+  renderSidebar();
+}
+
+/** Force-save immediately (used by Ctrl+S) */
+function forceSave() {
+  clearTimeout(saveTm);
+  saveNote();
+}
+
+/** Delete a note by id; loads the next available note or clears editor */
+async function deleteNote(id, e) {
+  e.stopPropagation();
+
+  notes = notes.filter(n => n.id !== id);
+  await dbDelete(id);
+
+  if (activeId === id) {
+    if (notes.length > 0) {
+      loadNote(notes[0].id);
+    } else {
+      activeId = null;
+
+      editor.off('change', onEditorChange);
+      editor.setValue('');
+      editor.on('change', onEditorChange);
+
+      document.getElementById('note-title').value = '';
+      document.getElementById('preview-content').style.display = 'none';
+      document.getElementById('empty-wrap').style.display = 'flex';
+      setSaveStatus('');
+    }
+  }
+
+  renderSidebar();
+}
+
+
+// ── Sidebar ────────────────────────────────────────────────
+
+function renderSidebar() {
+  const list = document.getElementById('notes-list');
+
+  if (!notes.length) {
+    list.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--text-muted)">No notes yet.</div>';
+    return;
+  }
+
+  list.innerHTML = notes.map(n => `
+    <div class="ni${n.id === activeId ? ' active' : ''}" onclick="loadNote('${n.id}')">
+      <div class="ni-info">
+        <div class="ni-title">${esc(n.title)}</div>
+        <div class="ni-date">${fmtDate(n.updatedAt)}</div>
+      </div>
+      <button class="del-btn" onclick="deleteNote('${n.id}', event)" title="Delete note">✕</button>
+    </div>
+  `).join('');
+}
+
+
+// ── Editor change handler ──────────────────────────────────
+
+function onEditorChange() {
+  if (!activeId) return;
+
+  // Debounced preview update (150ms — snappy but not every keystroke)
+  clearTimeout(prevTm);
+  prevTm = setTimeout(updatePreview, 150);
+
+  // Debounced auto-save (500ms — waits for a pause in typing)
+  setSaveStatus('saving');
+  clearTimeout(saveTm);
+  saveTm = setTimeout(saveNote, 500);
+}
+
+
+// ── Toolbar actions ────────────────────────────────────────
+
+/** Wrap selection (or placeholder) in before/after markers */
+function fmt(before, after) {
+  const sel = editor.getSelection();
+  editor.replaceSelection(before + (sel || 'text') + after);
+
+  // If nothing was selected, move cursor inside markers
+  if (!sel) {
+    const c = editor.getCursor();
+    editor.setCursor({ line: c.line, ch: c.ch - after.length });
+  }
+  editor.focus();
+}
+
+/** Insert a line prefix (heading, list marker, etc.) on a new line */
+function ln(prefix) {
+  const cursor = editor.getCursor();
+  const line   = editor.getLine(cursor.line);
+  editor.replaceRange('\n' + prefix, { line: cursor.line, ch: line.length });
+  editor.setCursor({ line: cursor.line + 1, ch: prefix.length });
+  editor.focus();
+}
+
+/** Insert a fenced code block */
+function codeBlock() {
+  const cursor = editor.getCursor();
+  const line   = editor.getLine(cursor.line);
+  const snippet = '\n```js\n\n```';
+  editor.replaceRange(snippet, { line: cursor.line, ch: line.length });
+  editor.setCursor({ line: cursor.line + 2, ch: 0 });
+  editor.focus();
+}
+
+
+// ── Export ─────────────────────────────────────────────────
+
+/** Trigger a browser file download */
+function download(filename, content, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([content], { type }));
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportMd() {
+  if (!activeId) return;
+  const n = notes.find(x => x.id === activeId);
+  download(n.title + '.md', n.content, 'text/markdown');
+}
+
+function exportHtml() {
+  if (!activeId) return;
+  const n       = notes.find(x => x.id === activeId);
+  const rawHtml = marked.parse(n.content, { gfm: true, breaks: true });
+  const clean   = DOMPurify.sanitize(rawHtml);
+
+  const doc = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${esc(n.title)}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 48px auto; padding: 0 24px; line-height: 1.8; color: #1a1a1a; }
+    h1,h2,h3,h4 { font-weight: 600; margin: 1.4em 0 0.4em; }
+    code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 0.88em; }
+    pre  { background: #f3f4f6; padding: 14px; border-radius: 8px; overflow-x: auto; }
+    pre code { background: none; }
+    blockquote { border-left: 3px solid #2383e2; padding-left: 14px; color: #555; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 12px; }
+    th { background: #f9fafb; }
+    a  { color: #2383e2; }
+    img { max-width: 100%; }
+  </style>
+</head>
+<body>${clean}</body>
+</html>`;
+
+  download(n.title + '.html', doc, 'text/html');
+}
+
+
+// ── Welcome note ───────────────────────────────────────────
+
+const WELCOME_NOTE = `# Welcome to Notion-lite ✨
+
+A **fast**, minimal markdown editor — built with CodeMirror, marked, and IndexedDB.
+
+## Features
+
+- Real-time live preview
+- **Auto-save** to IndexedDB (persists across refreshes)
+- Multiple notes with sidebar navigation
+- Export to \`.md\` or \`.html\`
+- Task lists, tables, fenced code blocks
+
+## Quick reference
+
+**Bold** · *Italic* · \`inline code\`
+
+> Start writing and notes save automatically — no button needed.
+
+### Code block
+
+\`\`\`js
+// Auto-save debounced at 500ms
+const save = debounce(async (note) => {
+  await db.put('notes', note)
+}, 500)
+\`\`\`
+
+### Table
+
+| Layer   | Tool       | Why                  |
+|---------|------------|----------------------|
+| Editor  | CodeMirror | Fast, extensible     |
+| Parser  | marked.js  | GFM + tables         |
+| Storage | IndexedDB  | Offline-first        |
+
+### Task list
+
+- [x] CodeMirror editor
+- [x] Live preview
+- [x] IndexedDB persistence
+- [ ] Your next feature
+
+---
+
+*Edit this note or create a new one from the sidebar.*
+`;
+
+
+// ── Initialise ─────────────────────────────────────────────
+
+async function init() {
+  // Open IndexedDB and load all stored notes
+  db    = await openDB();
+  notes = await dbGetAll();
+  notes.sort(byDate);
+
+  // Initialise CodeMirror
+  editor = CodeMirror.fromTextArea(
+    document.getElementById('cm-target'),
+    {
+      mode:          'markdown',
+      theme:         'default',
+      lineWrapping:  true,
+      autofocus:     false,
+      tabSize:       2,
+      indentWithTabs: false,
+      extraKeys: {
+        'Ctrl-B': () => fmt('**', '**'),
+        'Cmd-B':  () => fmt('**', '**'),
+        'Ctrl-I': () => fmt('*', '*'),
+        'Cmd-I':  () => fmt('*', '*'),
+        'Ctrl-S': () => forceSave(),
+        'Cmd-S':  () => forceSave(),
+      },
+    }
+  );
+  editor.setSize('100%', '100%');
+  editor.on('change', onEditorChange);
+
+  // Title input → debounced save
+  document.getElementById('note-title').addEventListener('input', () => {
+    if (!activeId) return;
+    const note = notes.find(n => n.id === activeId);
+    if (note) note.title = document.getElementById('note-title').value || 'Untitled';
+    setSaveStatus('saving');
+    clearTimeout(saveTm);
+    saveTm = setTimeout(saveNote, 500);
+    renderSidebar();
+  });
+
+  renderSidebar();
+
+  // Load most-recent note or create the welcome note
+  if (notes.length > 0) {
+    loadNote(notes[0].id);
+  } else {
+    createNote();
+  }
+}
+
+init().catch(err => console.error('Init error:', err));
+</script>
+</body>
+</html>

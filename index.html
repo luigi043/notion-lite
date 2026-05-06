@@ -647,6 +647,16 @@ function createNote() {
 
 /** Load a note into the editor without triggering auto-save */
 function loadNote(id) {
+  if (id === activeId) return;
+
+  // Flush any pending save for the previous note BEFORE switching,
+  // otherwise the queued save will overwrite the wrong note (data loss).
+  if (saveTm) {
+    clearTimeout(saveTm);
+    saveTm = null;
+    saveNote();
+  }
+
   activeId = id;
   const note = notes.find(n => n.id === id);
   if (!note) return;
@@ -672,18 +682,21 @@ async function saveNote() {
   const content  = editor.getValue();
   const titleEl  = document.getElementById('note-title');
 
-  // Auto-derive title from first Markdown heading or first non-empty line
-  if (note.title === 'Untitled' && content.trim()) {
+  // Title resolution priority:
+  //   1. Whatever the user typed in the title input (single source of truth)
+  //   2. If still 'Untitled', auto-derive from first heading / non-empty line
+  const typed = titleEl.value.trim();
+  if (typed && typed !== 'Untitled') {
+    note.title = typed;
+  } else if (content.trim()) {
     const firstLine = content.split('\n').find(l => l.trim());
-    if (firstLine) {
-      const derived = firstLine.replace(/^#+\s*/, '').trim().slice(0, 60);
-      if (derived) {
-        note.title = derived;
-        titleEl.value = note.title;
-      }
-    }
+    const derived   = firstLine
+      ? firstLine.replace(/^#+\s*/, '').trim().slice(0, 60)
+      : '';
+    note.title    = derived || 'Untitled';
+    titleEl.value = note.title === 'Untitled' ? '' : note.title;
   } else {
-    note.title = titleEl.value.trim() || 'Untitled';
+    note.title = 'Untitled';
   }
 
   note.content   = content;
@@ -741,14 +754,20 @@ function renderSidebar() {
   }
 
   list.innerHTML = notes.map(n => `
-    <div class="ni${n.id === activeId ? ' active' : ''}" onclick="loadNote('${n.id}')">
+    <div class="ni${n.id === activeId ? ' active' : ''}" data-id="${esc(n.id)}">
       <div class="ni-info">
         <div class="ni-title">${esc(n.title)}</div>
         <div class="ni-date">${fmtDate(n.updatedAt)}</div>
       </div>
-      <button class="del-btn" onclick="deleteNote('${n.id}', event)" title="Delete note">✕</button>
+      <button class="del-btn" data-action="delete" title="Delete note">✕</button>
     </div>
   `).join('');
+}
+
+/** Update only the active row's title (cheaper than re-rendering the whole list) */
+function patchActiveSidebarTitle(title) {
+  const row = document.querySelector('.ni.active .ni-title');
+  if (row) row.textContent = title;
 }
 
 
@@ -783,12 +802,23 @@ function fmt(before, after) {
   editor.focus();
 }
 
-/** Insert a line prefix (heading, list marker, etc.) on a new line */
+/** Insert a line prefix (heading, list marker, etc.).
+ *  If the current line is blank, prepend in place; otherwise drop to a new line. */
 function ln(prefix) {
   const cursor = editor.getCursor();
   const line   = editor.getLine(cursor.line);
-  editor.replaceRange('\n' + prefix, { line: cursor.line, ch: line.length });
-  editor.setCursor({ line: cursor.line + 1, ch: prefix.length });
+
+  if (line.trim() === '') {
+    editor.replaceRange(
+      prefix,
+      { line: cursor.line, ch: 0 },
+      { line: cursor.line, ch: line.length }
+    );
+    editor.setCursor({ line: cursor.line, ch: prefix.length });
+  } else {
+    editor.replaceRange('\n' + prefix, { line: cursor.line, ch: line.length });
+    editor.setCursor({ line: cursor.line + 1, ch: prefix.length });
+  }
   editor.focus();
 }
 
@@ -934,15 +964,29 @@ async function init() {
   editor.setSize('100%', '100%');
   editor.on('change', onEditorChange);
 
-  // Title input → debounced save
-  document.getElementById('note-title').addEventListener('input', () => {
+  // Title input → debounced save (patch only the active row, not the full list)
+  const titleEl = document.getElementById('note-title');
+  titleEl.addEventListener('input', () => {
     if (!activeId) return;
     const note = notes.find(n => n.id === activeId);
-    if (note) note.title = document.getElementById('note-title').value || 'Untitled';
+    const next = titleEl.value || 'Untitled';
+    if (note) note.title = next;
+    patchActiveSidebarTitle(next);
     setSaveStatus('saving');
     clearTimeout(saveTm);
     saveTm = setTimeout(saveNote, 500);
-    renderSidebar();
+  });
+
+  // Sidebar interactions via event delegation (no inline onclick)
+  document.getElementById('notes-list').addEventListener('click', (e) => {
+    const row = e.target.closest('.ni');
+    if (!row) return;
+    const id = row.dataset.id;
+    if (e.target.closest('[data-action="delete"]')) {
+      deleteNote(id, e);
+    } else {
+      loadNote(id);
+    }
   });
 
   renderSidebar();

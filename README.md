@@ -105,6 +105,4 @@ Yjs) and a WebSocket transport.
 
 ---
 
-## License
-
-MIT
+![alt text](image.png)
